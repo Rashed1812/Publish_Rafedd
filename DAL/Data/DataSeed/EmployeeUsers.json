@@ -1,0 +1,11 @@
+[
+  {
+    "fullName": "سارة أحمد",
+    "email": "sara@rafeed.com",
+    "password": "employee123",
+    "position": "مطور برمجيات",
+    "managerEmail": "manager@rafeed.com",
+    "isActive": true
+  }
+]
+

@@ -1,0 +1,13 @@
+[
+  {
+    "fullName": "Manager",
+    "email": "manager@rafeed.com",
+    "password": "manager123",
+    "companyName": "شركة رافد للتكنولوجيا",
+    "businessType": "تكنولوجيا المعلومات",
+    "businessDescription": "شركة متخصصة في تطوير البرمجيات وأنظمة إدارة الأداء",
+    "subscriptionPlanId": 2,
+    "isActive": true
+  }
+]
+

@@ -1,0 +1,10 @@
+[
+  {
+    "fullName": "Super Admin",
+    "email": "admin@rafeed.com",
+    "password": "admin123",
+    "phoneNumber": "+966501234567",
+    "isActive": true
+  }
+]
+
