@@ -154,7 +154,6 @@ namespace Rafedd
 
             // Repository Pattern - Generic
             builder.Services.AddScoped(typeof(IGenericRepository<>), typeof(GenericRepository<>));
-
             // Repository Pattern - Specific Repositories
             builder.Services.AddScoped<IAnnualTargetRepository, AnnualTargetRepository>();
             builder.Services.AddScoped<IMonthlyPlanRepository, MonthlyPlanRepository>();
@@ -189,6 +188,7 @@ namespace Rafedd
             builder.Services.AddScoped<IImportantNoteService, ImportantNoteService>();
             builder.Services.AddScoped<ITaskAnalysisService, TaskAnalysisService>();
             builder.Services.AddScoped<IEmailService, EmailService>();
+
 
             // Background Jobs
             builder.Services.AddScoped<HangfireBackgroundJobs>();

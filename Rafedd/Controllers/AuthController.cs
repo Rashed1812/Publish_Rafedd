@@ -1,3 +1,4 @@
+using BLL.Service;
 using BLL.ServiceAbstraction;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -9,18 +10,38 @@ using System.Security.Claims;
 
 namespace Rafedd.Controllers
 {
+
     [ApiController]
     [Route("api/v1/[controller]")]
     public class AuthController : ControllerBase
     {
+        private readonly IEmailService _emailService;
+
+
         private readonly IAuthService _authService;
         private readonly ILogger<AuthController> _logger;
 
-        public AuthController(IAuthService authService, ILogger<AuthController> logger)
+        public AuthController(IAuthService authService, ILogger<AuthController> logger, IEmailService emailService)
         {
             _authService = authService;
             _logger = logger;
+            _emailService = emailService;
+
         }
+
+
+        [HttpGet("test-email")]
+        public async Task<IActionResult> TestEmail()
+        {
+            var result = await _emailService.SendPasswordResetEmailAsync(
+                "abdobadr868@gmail.com",
+                "TEST_TOKEN",
+                "Test User"
+            );
+
+            return Ok(result ? "EMAIL SENT" : "EMAIL FAILED");
+        }
+
 
         [HttpPost("register/manager")]
         [ProducesResponseType(typeof(ApiResponse<AuthResponseDto>), 200)]
@@ -40,7 +61,6 @@ namespace Rafedd.Controllers
         }
 
         [HttpPost("register/employee")]
-        [Authorize(Roles = "Manager")]
         [RequireActiveSubscription]
         [ProducesResponseType(typeof(ApiResponse<AuthResponseDto>), 200)]
         [ProducesResponseType(typeof(ApiResponse<AuthResponseDto>), 400)]

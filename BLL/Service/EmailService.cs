@@ -16,33 +16,32 @@ namespace BLL.Service
             _configuration = configuration;
             _logger = logger;
         }
-
         public async Task<bool> SendPasswordResetEmailAsync(string email, string resetToken, string userName)
         {
             try
             {
-                var smtpServer = _configuration["EmailSettings:SmtpServer"];
-                var port = int.Parse(_configuration["EmailSettings:Port"] ?? "587");
-                var senderName = _configuration["EmailSettings:SenderName"] ?? "Rafedd System";
-                var senderEmail = _configuration["EmailSettings:SenderEmail"];
-                var username = _configuration["EmailSettings:Username"];
-                var password = _configuration["EmailSettings:Password"];
+                var smtpServer = _configuration["EmailSettings:host"];
+                var port = int.Parse(_configuration["EmailSettings:port"] ?? "587");
+                var username = _configuration["EmailSettings:username"];
+                var password = _configuration["EmailSettings:password"];
+                var fromEmail = _configuration["EmailSettings:fromemail"];
 
-                if (string.IsNullOrEmpty(smtpServer) || string.IsNullOrEmpty(senderEmail) || 
-                    string.IsNullOrEmpty(username) || string.IsNullOrEmpty(password))
+                if (string.IsNullOrWhiteSpace(smtpServer) ||
+                    string.IsNullOrWhiteSpace(username) ||
+                    string.IsNullOrWhiteSpace(password) ||
+                    string.IsNullOrWhiteSpace(fromEmail))
                 {
-                    _logger.LogError("Email settings are not properly configured");
+                    _logger.LogError("EmailSettings configuration is missing or invalid");
                     return false;
                 }
 
-                // Get base URL for reset link
                 var baseUrl = _configuration["AppSettings:BaseUrl"] ?? "https://rafeed.vercel.app";
-                var resetLink = $"{baseUrl}/reset-password?email={Uri.EscapeDataString(email)}&token={Uri.EscapeDataString(resetToken)}";
+                var resetLink =
+                    $"http://localhost:3000/reset-password?email={Uri.EscapeDataString(email)}&token={Uri.EscapeDataString(resetToken)}";
 
-                // Create email message
                 var mailMessage = new MailMessage
                 {
-                    From = new MailAddress(senderEmail, senderName),
+                    From = new MailAddress(fromEmail, "Rafedd System"),
                     Subject = "إعادة تعيين كلمة المرور - Rafedd System",
                     Body = GeneratePasswordResetEmailBody(userName, resetLink, resetToken),
                     IsBodyHtml = true
@@ -50,22 +49,22 @@ namespace BLL.Service
 
                 mailMessage.To.Add(email);
 
-                // Configure SMTP client
                 using var smtpClient = new SmtpClient(smtpServer, port)
                 {
                     EnableSsl = true,
+                    UseDefaultCredentials = false,
                     Credentials = new NetworkCredential(username, password),
                     DeliveryMethod = SmtpDeliveryMethod.Network
                 };
 
                 await smtpClient.SendMailAsync(mailMessage);
 
-                _logger.LogInformation("Password reset email sent successfully to: {Email}", email);
+                _logger.LogInformation("Password reset email sent to {Email}", email);
                 return true;
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error sending password reset email to: {Email}", email);
+                _logger.LogError(ex, "Failed to send password reset email to {Email}", email);
                 return false;
             }
         }

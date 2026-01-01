@@ -239,8 +239,8 @@ namespace BLL.Service
                 {
                     PaymentMethodId = paymentMethodId,
                     InvoiceValue = dto.Amount,
-                    CallBackUrl = $"{callbackBaseUrl}/api/v1/payment/myfatoorah/callback",
-                    ErrorUrl = $"{callbackBaseUrl}/api/v1/payment/myfatoorah/error",
+                    CallBackUrl = $"http://localhost:3000/api/v1/payment/myfatoorah/callback",
+                    ErrorUrl = $"http://localhost:3000/api/v1/payment/myfatoorah/error",
                     CustomerName = subscription.Manager.User.FullName ?? "Customer",
                     CustomerEmail = subscription.Manager.User.Email,
                     Language = "en",
@@ -659,6 +659,7 @@ namespace BLL.Service
                         payment.Amount, expectedAmount, subscription.Id);
                     // Still process but log warning for manual review
                 }
+                _logger.LogInformation("Payment found: {@Payment}", payment);
 
                 subscription.IsActive = true;
 
@@ -685,9 +686,11 @@ namespace BLL.Service
                 var manager = await _managerRepository.GetByIdAsync(subscription.ManagerId);
                 if (manager != null)
                 {
+                    _logger.LogInformation("Processed Stripe payment: , Status");
                     manager.SubscriptionEndsAt = subscription.EndDate;
                     _managerRepository.Update(manager);
                 }
+
             }
 
             await _paymentRepository.SaveChangesAsync();

@@ -102,37 +102,43 @@ namespace Rafedd.Controllers
                 throw new BadRequestException(ex.Message);
             }
         }
-
         // My Fatoorah Callback
+        [AllowAnonymous]
         [HttpGet("myfatoorah/callback")]
         [HttpPost("myfatoorah/callback")]
-        [AllowAnonymous]
-        public async Task<IActionResult> HandleMyFatoorahCallback(
-            [FromQuery] string? paymentId,
-            [FromQuery] string? invoiceId)
+        public async Task<IActionResult> HandleMyFatoorahCallback()
         {
             try
             {
-                // Security: Enforce HTTPS in production
-                if (!Request.IsHttps && !HttpContext.Request.Host.Host.Contains("localhost"))
-                {
-                    _logger.LogWarning("Rejected non-HTTPS MyFatoorah callback from {Host}", HttpContext.Request.Host);
-                    return Redirect("/payment/error?message=HTTPS required");
-                }
+                // 🔹 Read values from BOTH Query & Form (GET + POST safe)
+                string? paymentId =
+                    Request.Query["paymentId"].FirstOrDefault()
+                    ?? Request.Form["paymentId"].FirstOrDefault();
 
-                // Security: Log origin for monitoring
+                string? invoiceId =
+                    Request.Query["invoiceId"].FirstOrDefault()
+                    ?? Request.Form["invoiceId"].FirstOrDefault();
+
+                // 🔹 Log callback hit (VERY IMPORTANT for debugging)
                 var clientIp = HttpContext.Connection.RemoteIpAddress?.ToString();
-                _logger.LogInformation("MyFatoorah callback received from IP: {IP}, InvoiceId: {InvoiceId}", clientIp, invoiceId);
+                _logger.LogWarning(
+                    "MyFatoorah CALLBACK HIT  IP={IP}, paymentId={PaymentId}, invoiceId={InvoiceId}",
+                    clientIp, paymentId, invoiceId);
 
-                if (string.IsNullOrEmpty(invoiceId))
+                // 🔹 If InvoiceId is missing but PaymentId exists → still continue
+                if (string.IsNullOrEmpty(invoiceId) && string.IsNullOrEmpty(paymentId))
                 {
-                    return Redirect("/payment/error?message=Invoice ID is required");
+                    _logger.LogError("MyFatoorah callback missing both paymentId and invoiceId");
+                    return Redirect("/payment/error");
                 }
 
+                // 🔹 Handle callback (verification happens inside service)
                 var result = await _paymentService.HandleMyFatoorahCallbackAsync(
-                    paymentId ?? "",
-                    invoiceId);
+                    paymentId ?? string.Empty,
+                    invoiceId ?? string.Empty
+                );
 
+                // 🔹 Redirect user based on result
                 if (result)
                 {
                     return Redirect($"/payment/success?invoiceId={invoiceId}");
@@ -142,7 +148,7 @@ namespace Rafedd.Controllers
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error handling My Fatoorah callback");
+                _logger.LogError(ex, "Error handling MyFatoorah callback");
                 return Redirect("/payment/error");
             }
         }
