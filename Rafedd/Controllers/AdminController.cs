@@ -28,6 +28,7 @@ namespace Rafedd.Controllers
         private readonly IManagerService _managerService;
         private readonly ISubscriptionService _subscriptionService;
         private readonly IDataSeederService _dataSeederService;
+        private readonly INotificationService _notificationService;
         private readonly ILogger<AdminController> _logger;
 
         public AdminController(
@@ -41,6 +42,7 @@ namespace Rafedd.Controllers
             IManagerService managerService,
             ISubscriptionService subscriptionService,
             IDataSeederService dataSeederService,
+            INotificationService notificationService,
             ILogger<AdminController> logger)
         {
             _context = context;
@@ -53,6 +55,7 @@ namespace Rafedd.Controllers
             _managerService = managerService;
             _subscriptionService = subscriptionService;
             _dataSeederService = dataSeederService;
+            _notificationService = notificationService;
             _logger = logger;
         }
 
@@ -99,7 +102,7 @@ namespace Rafedd.Controllers
         {
             var totalRevenue = await _paymentRepository.GetTotalRevenueAsync();
             var monthlyRevenue = await _paymentRepository.GetMonthlyRevenueAsync(DateTime.UtcNow.AddMonths(-1));
-            
+
             var allPayments = await _paymentRepository.GetRevenueStatisticsAsync();
             var paymentStats = allPayments
                 .GroupBy(p => p.Status)
@@ -155,34 +158,29 @@ namespace Rafedd.Controllers
             return Ok(ApiResponse<object>.SuccessResponse(result, "تم الحصول على نشاط المستخدمين بنجاح"));
         }
 
-        // Get All Managers with Filtering (NEW)
+        // Get All Managers with Filtering
         [HttpGet("managers")]
         [ProducesResponseType(typeof(PagedResponse<ManagerDto>), 200)]
         public async Task<ActionResult<PagedResponse<ManagerDto>>> GetAllManagers(
             [FromQuery] ManagerFilterParams? filterParams)
         {
-            // If no filter params provided, create empty one (all defaults)
             filterParams ??= new ManagerFilterParams();
-
             var result = await _managerService.GetManagersAsync(filterParams);
             return Ok(result);
         }
 
-        // Get All Companies (Alias for Managers) - Frontend expects /companies route
+        // Get All Companies (Alias for Managers)
         [HttpGet("companies")]
         [ProducesResponseType(typeof(PagedResponse<ManagerDto>), 200)]
         public async Task<ActionResult<PagedResponse<ManagerDto>>> GetAllCompanies(
             [FromQuery] ManagerFilterParams? filterParams)
         {
-            // Companies are represented as Managers in the system
-            // This is just an alias route for frontend compatibility
             filterParams ??= new ManagerFilterParams();
-
             var result = await _managerService.GetManagersAsync(filterParams);
             return Ok(result);
         }
 
-        // Get Manager by ID with Employees (Super Admin)
+        // Get Manager by ID with Employees
         [HttpGet("managers/{id}")]
         [ProducesResponseType(typeof(ApiResponse<object>), 200)]
         [ProducesResponseType(typeof(ApiResponse<object>), 404)]
@@ -226,7 +224,7 @@ namespace Rafedd.Controllers
                         endDate = manager.Subscription.EndDate
                     } : null,
                     employees = employeesDto,
-                    employeeCount = manager.Employees.Count(e => e.IsActive), // Calculate from employees collection
+                    employeeCount = manager.Employees.Count(e => e.IsActive),
                     createdAt = manager.User.CreatedAt
                 }
             };
@@ -234,15 +232,13 @@ namespace Rafedd.Controllers
             return Ok(result);
         }
 
-        // Get All Employees with Filtering (NEW)
+        // Get All Employees with Filtering
         [HttpGet("employees")]
         [ProducesResponseType(typeof(PagedResponse<EmployeeDto>), 200)]
         public async Task<ActionResult<PagedResponse<EmployeeDto>>> GetAllEmployees(
             [FromQuery] EmployeeFilterParams? filterParams)
         {
-            // If no filter params provided, create empty one (all defaults)
             filterParams ??= new EmployeeFilterParams();
-
             var result = await _employeeService.GetEmployeesAsync(filterParams);
             return Ok(result);
         }
@@ -254,7 +250,6 @@ namespace Rafedd.Controllers
             [FromQuery] SubscriptionFilterParams? filterParams)
         {
             filterParams ??= new SubscriptionFilterParams();
-
             var result = await _subscriptionService.GetSubscriptionsAsync(filterParams);
             return Ok(result);
         }
@@ -299,6 +294,7 @@ namespace Rafedd.Controllers
 
             return Ok(ApiResponse<object>.SuccessResponse(result, "تم الحصول على المدفوعات بنجاح"));
         }
+        // هذا الجزء يُضاف إلى AdminController.cs
 
         // Seed Data Endpoints
         [HttpPost("seed/all")]
@@ -309,12 +305,12 @@ namespace Rafedd.Controllers
             try
             {
                 var result = await _dataSeederService.SeedAllDataAsync();
-                
+
                 if (result)
                 {
                     return Ok(ApiResponse<object>.SuccessResponse(null, "تم إنشاء Seed Data بنجاح (Subscription Plans, Admin Users, Manager Users, Employee Users)"));
                 }
-                
+
                 throw new BadRequestException("حدث خطأ أثناء إنشاء Seed Data. تحقق من السجلات (Logs)");
             }
             catch (Exception ex)
@@ -332,12 +328,12 @@ namespace Rafedd.Controllers
             try
             {
                 var result = await _dataSeederService.SeedSubscriptionPlansAsync();
-                
+
                 if (result)
                 {
                     return Ok(ApiResponse<object>.SuccessResponse(null, "تم إنشاء Subscription Plans بنجاح"));
                 }
-                
+
                 throw new BadRequestException("حدث خطأ أثناء إنشاء Subscription Plans");
             }
             catch (Exception ex)
@@ -355,12 +351,12 @@ namespace Rafedd.Controllers
             try
             {
                 var result = await _dataSeederService.SeedAdminUsersAsync();
-                
+
                 if (result)
                 {
                     return Ok(ApiResponse<object>.SuccessResponse(null, "تم إنشاء Admin Users بنجاح"));
                 }
-                
+
                 throw new BadRequestException("حدث خطأ أثناء إنشاء Admin Users");
             }
             catch (Exception ex)
@@ -378,12 +374,12 @@ namespace Rafedd.Controllers
             try
             {
                 var result = await _dataSeederService.SeedManagerUsersAsync();
-                
+
                 if (result)
                 {
                     return Ok(ApiResponse<object>.SuccessResponse(null, "تم إنشاء Manager Users بنجاح مع الاشتراكات"));
                 }
-                
+
                 throw new BadRequestException("حدث خطأ أثناء إنشاء Manager Users");
             }
             catch (Exception ex)
@@ -401,12 +397,12 @@ namespace Rafedd.Controllers
             try
             {
                 var result = await _dataSeederService.SeedEmployeeUsersAsync();
-                
+
                 if (result)
                 {
                     return Ok(ApiResponse<object>.SuccessResponse(null, "تم إنشاء Employee Users بنجاح"));
                 }
-                
+
                 throw new BadRequestException("حدث خطأ أثناء إنشاء Employee Users");
             }
             catch (Exception ex)
@@ -430,17 +426,10 @@ namespace Rafedd.Controllers
                     throw new NotFoundException("الاشتراك غير موجود");
                 }
 
-                // Check if subscription is pending (not active)
                 if (subscription.IsActive)
                 {
                     throw new BadRequestException("الاشتراك غير معلق للموافقة");
                 }
-
-                // TODO: Implement approval logic
-                // - Update subscription status to "active"
-                // - Set custom price if provided
-                // - Update subscription dates
-                // - Create invoice if needed
 
                 subscription.IsActive = true;
                 if (dto?.CustomPrice.HasValue == true)
@@ -450,6 +439,21 @@ namespace Rafedd.Controllers
 
                 _subscriptionRepository.Update(subscription);
                 await _subscriptionRepository.SaveChangesAsync();
+
+                // إشعار للمدير عند الموافقة على الاشتراك
+                var manager = await _managerRepository.GetByIdAsync(subscription.ManagerId);
+                if (manager != null)
+                {
+                    await _notificationService.CreateNotificationAsync(
+                        manager.UserId,
+                        "subscription_approved",
+                        "تفعيل الاشتراك",
+                        "تم الموافقة على طلب اشتراكك وتفعيل حسابك بنجاح",
+                        "high",
+                        "/subscription",
+                        subscription.Id.ToString()
+                    );
+                }
 
                 return Ok(new
                 {
@@ -484,17 +488,34 @@ namespace Rafedd.Controllers
                     throw new NotFoundException("الاشتراك غير موجود");
                 }
 
-                // Check if subscription is pending (not active)
                 if (subscription.IsActive)
                 {
                     throw new BadRequestException("الاشتراك غير معلق للموافقة");
                 }
 
-                // TODO: Implement rejection logic
                 subscription.IsActive = false;
 
                 _subscriptionRepository.Update(subscription);
                 await _subscriptionRepository.SaveChangesAsync();
+
+                // إشعار للمدير عند رفض الاشتراك
+                var manager = await _managerRepository.GetByIdAsync(subscription.ManagerId);
+                if (manager != null)
+                {
+                    var reason = !string.IsNullOrEmpty(dto?.Reason)
+                        ? $"السبب: {dto.Reason}"
+                        : "";
+
+                    await _notificationService.CreateNotificationAsync(
+                        manager.UserId,
+                        "subscription_rejected",
+                        "رفض طلب الاشتراك",
+                        $"تم رفض طلب اشتراكك. {reason}",
+                        "high",
+                        "/subscription",
+                        subscription.Id.ToString()
+                    );
+                }
 
                 return Ok(new
                 {
@@ -521,8 +542,6 @@ namespace Rafedd.Controllers
         [ProducesResponseType(typeof(ApiResponse<AdminSettingsDto>), 200)]
         public ActionResult<ApiResponse<AdminSettingsDto>> GetAdminSettings()
         {
-            // For now, return default settings
-            // In future, these should be stored in database
             var settings = new AdminSettingsDto
             {
                 Platform = new PlatformSettings
@@ -555,22 +574,19 @@ namespace Rafedd.Controllers
         [ProducesResponseType(typeof(ApiResponse<AdminSettingsDto>), 200)]
         public ActionResult<ApiResponse<AdminSettingsDto>> UpdateAdminSettings([FromBody] AdminSettingsDto settings)
         {
-            // For now, just return the same settings
-            // In future, save to database
             _logger.LogInformation("Admin settings updated (not persisted yet - requires database schema)");
-
             return Ok(ApiResponse<AdminSettingsDto>.SuccessResponse(settings, "تم تحديث إعدادات النظام بنجاح"));
         }
-    }
 
-    public class ApproveSubscriptionDto
-    {
-        public decimal? CustomPrice { get; set; }
-        public string? Notes { get; set; }
-    }
+        public class ApproveSubscriptionDto
+        {
+            public decimal? CustomPrice { get; set; }
+            public string? Notes { get; set; }
+        }
 
-    public class RejectSubscriptionDto
-    {
-        public string? Reason { get; set; }
+        public class RejectSubscriptionDto
+        {
+            public string? Reason { get; set; }
+        }
     }
 }

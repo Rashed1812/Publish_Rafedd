@@ -1,6 +1,6 @@
+using BLL.ServiceAbstraction;
 using DAL.Data;
 using DAL.Data.Models.TasksAndReports;
-using DAL.Data.Models.IdentityModels;
 using DAL.Repositories.RepositoryIntrfaces;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -17,15 +17,18 @@ namespace Rafedd.Controllers
     {
         private readonly ApplicationDbContext _context;
         private readonly IEmployeeRepository _employeeRepository;
+        private readonly INotificationService _notificationService;
         private readonly ILogger<ReportsController> _logger;
 
         public ReportsController(
             ApplicationDbContext context,
             IEmployeeRepository employeeRepository,
+            INotificationService notificationService,
             ILogger<ReportsController> logger)
         {
             _context = context;
             _employeeRepository = employeeRepository;
+            _notificationService = notificationService;
             _logger = logger;
         }
 
@@ -99,7 +102,7 @@ namespace Rafedd.Controllers
                         employeeName = r.Employee.User.FullName,
                         date = r.SubmittedAt,
                         summary = r.ReportText,
-                        mood = "success", // You can add mood field to TaskReport model
+                        mood = "success",
                         attachments = Array.Empty<string>(),
                         createdAt = r.SubmittedAt
                     })
@@ -151,17 +154,30 @@ namespace Rafedd.Controllers
                     reportDate = DateTime.UtcNow;
                 }
 
-                // Create a task report (simplified - you might want to create a separate DailyReport model)
                 var report = new TaskReport
                 {
                     EmployeeId = employee.Id,
-                    TaskItemId = 0, // You might want to create a general task for daily reports
+                    TaskItemId = 0,
                     ReportText = dto.Summary,
                     SubmittedAt = reportDate
                 };
 
                 _context.TaskReports.Add(report);
                 await _context.SaveChangesAsync();
+
+                // إشعار للمدير عند إنشاء تقرير يومي
+                if (!string.IsNullOrEmpty(employee.ManagerUserId))
+                {
+                    await _notificationService.CreateNotificationAsync(
+                        employee.ManagerUserId,
+                        "daily_report_submitted",
+                        "تقرير يومي جديد",
+                        $"قام {employee.User.FullName} بتقديم التقرير اليومي",
+                        "medium",
+                        $"/reports/daily?employeeId={employeeUserId}",
+                        report.Id.ToString()
+                    );
+                }
 
                 var reportDto = new
                 {
@@ -220,8 +236,8 @@ namespace Rafedd.Controllers
                 var missedTasks = tasks.Where(t => !t.IsCompleted && t.Deadline.HasValue && t.Deadline.Value < DateTime.UtcNow)
                     .Select(t => t.Id.ToString()).ToList();
 
-                var goalCompletion = tasks.Count > 0 
-                    ? (int)((double)completedTasks.Count / tasks.Count * 100) 
+                var goalCompletion = tasks.Count > 0
+                    ? (int)((double)completedTasks.Count / tasks.Count * 100)
                     : 0;
 
                 var employeeStats = employees.Select(e => new
@@ -265,8 +281,7 @@ namespace Rafedd.Controllers
     {
         public string? Date { get; set; }
         public string Summary { get; set; } = null!;
-        public string Mood { get; set; } = "success"; // success, average, failed
+        public string Mood { get; set; } = "success";
         public string[]? Attachments { get; set; }
     }
 }
-

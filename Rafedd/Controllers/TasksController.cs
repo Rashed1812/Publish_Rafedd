@@ -19,17 +19,20 @@ namespace Rafedd.Controllers
         private readonly ITaskService _taskService;
         private readonly ApplicationDbContext _context;
         private readonly IEmployeeRepository _employeeRepository;
+        private readonly INotificationService _notificationService;
         private readonly ILogger<TasksController> _logger;
 
         public TasksController(
             ITaskService taskService,
             ApplicationDbContext context,
             IEmployeeRepository employeeRepository,
+            INotificationService notificationService,
             ILogger<TasksController> logger)
         {
             _taskService = taskService;
             _context = context;
             _employeeRepository = employeeRepository;
+            _notificationService = notificationService;
             _logger = logger;
         }
 
@@ -216,7 +219,6 @@ namespace Rafedd.Controllers
 
                 _context.Tasks.Add(task);
 
-                // Create task assignment
                 var assignment = new TaskAssignment
                 {
                     TaskItem = task,
@@ -227,6 +229,20 @@ namespace Rafedd.Controllers
                 _context.Set<TaskAssignment>().Add(assignment);
 
                 await _context.SaveChangesAsync();
+
+                // إشعار للمدير عند إنشاء مهمة من الموظف
+                if (!string.IsNullOrEmpty(employee.ManagerUserId))
+                {
+                    await _notificationService.CreateNotificationAsync(
+                        employee.ManagerUserId,
+                        "task_created_by_employee",
+                        "مهمة جديدة من موظف",
+                        $"قام {employee.User.FullName} بإضافة مهمة جديدة: {task.Title}",
+                        "medium",
+                        $"/tasks/{task.Id}",
+                        task.Id.ToString()
+                    );
+                }
 
                 var taskDto = new
                 {
@@ -282,6 +298,8 @@ namespace Rafedd.Controllers
                     throw new NotFoundException("المهمة غير موجودة");
                 }
 
+                var oldStatus = task.IsCompleted;
+
                 if (!string.IsNullOrEmpty(dto.Status))
                 {
                     task.IsCompleted = dto.Status == "completed";
@@ -296,6 +314,21 @@ namespace Rafedd.Controllers
                 }
 
                 await _context.SaveChangesAsync();
+
+                // إشعار للمدير عند تحديث حالة المهمة
+                if (oldStatus != task.IsCompleted && !string.IsNullOrEmpty(employee.ManagerUserId))
+                {
+                    var statusText = task.IsCompleted ? "مكتملة" : "غير مكتملة";
+                    await _notificationService.CreateNotificationAsync(
+                        employee.ManagerUserId,
+                        "task_status_updated",
+                        "تحديث حالة مهمة",
+                        $"قام {employee.User.FullName} بتحديث حالة المهمة '{task.Title}' إلى {statusText}",
+                        "medium",
+                        $"/tasks/{task.Id}",
+                        task.Id.ToString()
+                    );
+                }
 
                 return Ok(new
                 {
@@ -334,4 +367,3 @@ namespace Rafedd.Controllers
         public DateTime? CompletedAt { get; set; }
     }
 }
-

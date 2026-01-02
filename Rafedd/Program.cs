@@ -1,5 +1,6 @@
 using BLL.Service;
 using BLL.ServiceAbstraction;
+using BLL.Services;
 using DAL.Data;
 using DAL.Data.Models.IdentityModels;
 using DAL.Repositories.GenericRepositries;
@@ -9,12 +10,12 @@ using Hangfire;
 using Hangfire.Dashboard;
 using Hangfire.MemoryStorage;
 using Hangfire.SqlServer;
-using Rafedd.Middleware;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
+using Rafedd.Middleware;
 using System.Text;
 
 namespace Rafedd
@@ -188,7 +189,7 @@ namespace Rafedd
             builder.Services.AddScoped<IImportantNoteService, ImportantNoteService>();
             builder.Services.AddScoped<ITaskAnalysisService, TaskAnalysisService>();
             builder.Services.AddScoped<IEmailService, EmailService>();
-
+            builder.Services.AddScoped<INotificationService, NotificationService>();
 
             // Background Jobs
             builder.Services.AddScoped<HangfireBackgroundJobs>();

@@ -23,6 +23,7 @@ namespace Rafedd.Controllers
         private readonly IEmployeeRepository _employeeRepository;
         private readonly ITaskRepository _taskRepository;
         private readonly ITaskReportRepository _taskReportRepository;
+        private readonly INotificationService _notificationService;
         private readonly ILogger<EmployeeController> _logger;
 
         public EmployeeController(
@@ -31,6 +32,7 @@ namespace Rafedd.Controllers
             IEmployeeRepository employeeRepository,
             ITaskRepository taskRepository,
             ITaskReportRepository taskReportRepository,
+            INotificationService notificationService,
             ILogger<EmployeeController> logger)
         {
             _taskService = taskService;
@@ -38,6 +40,7 @@ namespace Rafedd.Controllers
             _employeeRepository = employeeRepository;
             _taskRepository = taskRepository;
             _taskReportRepository = taskReportRepository;
+            _notificationService = notificationService;
             _logger = logger;
         }
 
@@ -55,26 +58,20 @@ namespace Rafedd.Controllers
         {
             var employeeUserId = GetUserId();
 
-            // Get employee record
             var employee = await _employeeRepository.GetByUserIdAsync(employeeUserId);
             if (employee == null)
             {
                 throw new NotFoundException("الموظف غير موجود");
             }
 
-            // Get all tasks assigned to this employee
             var allTasks = await _taskRepository.GetByEmployeeAsync(employee.Id);
-
-            // Calculate task stats
             var totalTasks = allTasks.Count;
             var completedTasks = allTasks.Count(t => t.IsCompleted);
             var pendingTasks = totalTasks - completedTasks;
             var completionPercentage = totalTasks > 0 ? (int)((completedTasks / (double)totalTasks) * 100) : 0;
 
-            // Get all reports by this employee
             var allReports = await _taskReportRepository.GetByEmployeeAsync(employee.Id);
 
-            // Get current week info
             var now = DateTime.UtcNow;
             var currentCulture = CultureInfo.CurrentCulture;
             var weekNumber = currentCulture.Calendar.GetWeekOfYear(
@@ -82,16 +79,12 @@ namespace Rafedd.Controllers
                 CalendarWeekRule.FirstFourDayWeek,
                 DayOfWeek.Sunday);
 
-            // Get reports for current week
             var reportsThisWeek = allReports.Count(r =>
                 r.SubmittedAt.Year == now.Year &&
                 currentCulture.Calendar.GetWeekOfYear(r.SubmittedAt, CalendarWeekRule.FirstFourDayWeek, DayOfWeek.Sunday) == weekNumber);
 
-            // Calculate average performance (simplified - just use completion rate for now)
-            // In future, this should be based on actual performance scores from reports
             var averageScore = completionPercentage;
 
-            // Determine performance level
             string performanceLevel = averageScore switch
             {
                 >= 90 => "ممتاز",
@@ -142,22 +135,18 @@ namespace Rafedd.Controllers
         {
             var employeeUserId = GetUserId();
 
-            // Get employee record
             var employee = await _employeeRepository.GetByUserIdAsync(employeeUserId);
             if (employee == null)
             {
                 throw new NotFoundException("الموظف غير موجود");
             }
 
-            // Get all tasks for the specified week
             var tasks = await _taskRepository.GetByWeekForPerformanceAsync(year, month, weekNumber);
 
-            // Filter to only tasks assigned to this employee
             var employeeTasks = tasks
                 .Where(t => t.Assignments.Any(a => a.EmployeeId == employee.Id))
                 .ToList();
 
-            // Map to DTOs
             var taskDtos = employeeTasks.Select(t => new TaskDto
             {
                 Id = t.Id,
@@ -211,6 +200,22 @@ namespace Rafedd.Controllers
             {
                 var employeeUserId = GetUserId();
                 var result = await _taskService.UpdateTaskStatusAsync(taskId, true, employeeUserId);
+
+                // إشعار للمدير عند إتمام المهمة
+                var employee = await _employeeRepository.GetByUserIdAsync(employeeUserId);
+                if (employee != null && !string.IsNullOrEmpty(employee.ManagerUserId))
+                {
+                    await _notificationService.CreateNotificationAsync(
+                        employee.ManagerUserId,
+                        "task_completed",
+                        "مهمة مكتملة",
+                        $"قام {employee.User.FullName} بإتمام المهمة: {result.Title}",
+                        "medium",
+                        $"/tasks/{taskId}",
+                        taskId.ToString()
+                    );
+                }
+
                 return Ok(ApiResponse<TaskDto>.SuccessResponse(result, "تم تحديث حالة المهمة إلى مكتملة بنجاح"));
             }
             catch (InvalidOperationException ex)
@@ -228,6 +233,22 @@ namespace Rafedd.Controllers
             {
                 var employeeUserId = GetUserId();
                 var result = await _taskService.UpdateTaskStatusAsync(taskId, false, employeeUserId);
+
+                // إشعار للمدير عند إلغاء إتمام المهمة
+                var employee = await _employeeRepository.GetByUserIdAsync(employeeUserId);
+                if (employee != null && !string.IsNullOrEmpty(employee.ManagerUserId))
+                {
+                    await _notificationService.CreateNotificationAsync(
+                        employee.ManagerUserId,
+                        "task_status_changed",
+                        "تغيير حالة المهمة",
+                        $"قام {employee.User.FullName} بتغيير حالة المهمة: {result.Title} إلى غير مكتملة",
+                        "low",
+                        $"/tasks/{taskId}",
+                        taskId.ToString()
+                    );
+                }
+
                 return Ok(ApiResponse<TaskDto>.SuccessResponse(result, "تم تحديث حالة المهمة إلى غير مكتملة بنجاح"));
             }
             catch (InvalidOperationException ex)
@@ -247,6 +268,22 @@ namespace Rafedd.Controllers
             {
                 var employeeUserId = GetUserId();
                 var result = await _reportService.CreateTaskReportAsync(employeeUserId, dto);
+
+                // إشعار للمدير عند تقديم تقرير
+                var employee = await _employeeRepository.GetByUserIdAsync(employeeUserId);
+                if (employee != null && !string.IsNullOrEmpty(employee.ManagerUserId))
+                {
+                    await _notificationService.CreateNotificationAsync(
+                        employee.ManagerUserId,
+                        "report_submitted",
+                        "تقرير جديد",
+                        $"قام {employee.User.FullName} بتقديم تقرير جديد للمهمة #{dto.TaskItemId}",
+                        "high",
+                        $"/reports/{result.Id}",
+                        result.Id.ToString()
+                    );
+                }
+
                 return Ok(ApiResponse<TaskReportDto>.SuccessResponse(result, "تم إنشاء التقرير بنجاح"));
             }
             catch (InvalidOperationException ex)

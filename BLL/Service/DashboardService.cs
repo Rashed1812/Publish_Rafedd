@@ -1,4 +1,4 @@
-using BLL.ServiceAbstraction;
+﻿using BLL.ServiceAbstraction;
 using DAL.Data;
 using DAL.Data.Models.IdentityModels;
 using DAL.Repositories.RepositoryIntrfaces;
@@ -47,24 +47,21 @@ namespace BLL.Service
             var manager = await _managerRepository.GetWithDetailsAsync(managerUserId);
 
             if (manager == null)
-            {
                 throw new InvalidOperationException("Manager not found");
-            }
 
             var now = DateTime.UtcNow;
             var currentYear = now.Year;
             var currentMonth = now.Month;
 
-            // Get current week number (1-4)
-            var firstDayOfMonth = new DateTime(currentYear, currentMonth, 1);
+
             var daysIntoMonth = now.Day;
             var currentWeek = ((daysIntoMonth - 1) / 7) + 1;
             if (currentWeek > 4) currentWeek = 4;
 
-            // Get current annual target
-            var currentAnnualTarget = await _annualTargetRepository.GetByManagerAndYearAsync(managerUserId, currentYear);
 
-            // Get monthly plans for current month
+            var currentAnnualTarget =
+                await _annualTargetRepository.GetByManagerAndYearAsync(managerUserId, currentYear);
+
             var monthlyPlan = currentAnnualTarget?.MonthlyPlans
                 .FirstOrDefault(mp => mp.Month == currentMonth);
 
@@ -72,34 +69,34 @@ namespace BLL.Service
 
             if (monthlyPlan != null)
             {
-                // Fix N+1 query: Load all tasks and reports for the month in single queries
-                var allTasksTask = _context.Tasks
+                var allTasks = await _context.Tasks
                     .Where(t => t.CreatedById == managerUserId &&
-                               t.Year == currentYear &&
-                               t.Month == currentMonth)
+                                t.Year == currentYear &&
+                                t.Month == currentMonth)
                     .ToListAsync();
 
-                var allReportsTask = _context.TaskReports
+                var allReports = await _context.TaskReports
                     .Include(tr => tr.TaskItem)
                     .Include(tr => tr.Employee)
                     .Where(tr => tr.Employee.ManagerUserId == managerUserId &&
-                                tr.TaskItem.Year == currentYear &&
-                                tr.TaskItem.Month == currentMonth)
+                                 tr.TaskItem.Year == currentYear &&
+                                 tr.TaskItem.Month == currentMonth)
                     .ToListAsync();
-
-                await Task.WhenAll(allTasksTask, allReportsTask);
-                var allTasks = await allTasksTask;
-                var allReports = await allReportsTask;
 
                 foreach (var weeklyPlan in monthlyPlan.WeeklyPlans.OrderBy(wp => wp.WeekNumber))
                 {
-                    // Filter tasks and reports by week number from preloaded data
-                    var tasks = allTasks.Where(t => t.WeekNumber == weeklyPlan.WeekNumber).ToList();
-                    var reports = allReports.Where(r => r.TaskItem.WeekNumber == weeklyPlan.WeekNumber).ToList();
+                    var tasks = allTasks
+                        .Where(t => t.WeekNumber == weeklyPlan.WeekNumber)
+                        .ToList();
 
-                    var isCurrentWeek = weeklyPlan.WeekNumber == currentWeek &&
-                                       weeklyPlan.Year == currentYear &&
-                                       weeklyPlan.Month == currentMonth;
+                    var reports = allReports
+                        .Where(r => r.TaskItem.WeekNumber == weeklyPlan.WeekNumber)
+                        .ToList();
+
+                    var isCurrentWeek =
+                        weeklyPlan.WeekNumber == currentWeek &&
+                        weeklyPlan.Year == currentYear &&
+                        weeklyPlan.Month == currentMonth;
 
                     weekInfos.Add(new WeekInfoDto
                     {
@@ -116,7 +113,7 @@ namespace BLL.Service
             }
             else
             {
-                // Generate default week structure if no plan exists
+                // Default weeks if no monthly plan
                 for (int week = 1; week <= 4; week++)
                 {
                     var weekStart = GetWeekStartDate(currentYear, currentMonth, week);
@@ -135,10 +132,12 @@ namespace BLL.Service
             var currentWeekInfo = weekInfos.FirstOrDefault(w => w.IsCurrentWeek);
 
             // Get total employees
-            var totalEmployees = await _employeeRepository.GetEmployeeCountByManagerAsync(managerUserId);
+            var totalEmployees =
+                await _employeeRepository.GetEmployeeCountByManagerAsync(managerUserId);
 
             // Get active subscription
-            var activeSubscription = await _subscriptionRepository.GetByManagerIdAsync(manager.Id);
+            var activeSubscription =
+                await _subscriptionRepository.GetByManagerIdAsync(manager.Id);
 
             return new ManagerDashboardDto
             {
@@ -160,6 +159,7 @@ namespace BLL.Service
                     : null
             };
         }
+
 
         private DateTime GetWeekStartDate(int year, int month, int weekNumber)
         {

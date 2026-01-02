@@ -42,7 +42,7 @@ namespace BLL.Service
 
                 // Parse JSON response from Gemini
                 var planResponse = ParsePlanResponse(responseText);
-                
+
                 // Calculate week dates
                 CalculateWeekDates(planResponse, year);
 
@@ -84,16 +84,51 @@ namespace BLL.Service
             }
         }
 
+        public async Task<AIPerformanceAnalysisDto> AnalyzeMonthlyPerformanceAsync(
+            int monthlyPlanId,
+            int year,
+            int month,
+            string monthlyGoal,
+            List<WeeklyProgressDto> weeklyProgress,
+            List<WeeklyPerformanceData> allEmployeeReports,
+            int totalTasks,
+            int completedTasks,
+            float achievementPercentage)
+        {
+            try
+            {
+                var apiKey = _configuration["Gemini:ApiKey"];
+                if (string.IsNullOrEmpty(apiKey))
+                {
+                    throw new InvalidOperationException("Gemini API Key is not configured");
+                }
+
+                var prompt = BuildMonthlyPerformanceAnalysisPrompt(
+                    year, month, monthlyGoal, weeklyProgress,
+                    allEmployeeReports, totalTasks, completedTasks, achievementPercentage);
+
+                var responseText = await CallGeminiAPIAsync(apiKey, prompt);
+
+                _logger.LogInformation("Gemini AI Monthly Performance Analysis Response: {Response}", responseText);
+
+                return ParsePerformanceAnalysis(responseText);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error analyzing monthly performance with Gemini AI");
+                throw;
+            }
+        }
+
         private async Task<string> CallGeminiAPIAsync(string apiKey, string prompt)
         {
             var httpClient = _httpClientFactory.CreateClient();
             httpClient.Timeout = TimeSpan.FromMinutes(5);
 
             var modelName = _configuration["Gemini:ModelName"] ?? "gemini-1.5-pro";
-            var apiUrl = $"https://generativelanguage.googleapis.com/v1beta/models/{modelName}:generateContent";
 
-            // Add API key as header (correct method per Google docs)
-            httpClient.DefaultRequestHeaders.Add("x-goog-api-key", apiKey);
+            // FIXED: Add API key as query parameter in URL (not as header)
+            var apiUrl = $"https://generativelanguage.googleapis.com/v1beta/models/{modelName}:generateContent?key={apiKey}";
 
             var requestBody = new
             {
@@ -115,16 +150,27 @@ namespace BLL.Service
             var json = JsonSerializer.Serialize(requestBody);
             var content = new StringContent(json, Encoding.UTF8, "application/json");
 
+            _logger.LogInformation("Calling Gemini API with model: {ModelName}", modelName);
+
             var response = await httpClient.PostAsync(apiUrl, content);
+
+            // Better error handling and logging
+            if (!response.IsSuccessStatusCode)
+            {
+                var errorContent = await response.Content.ReadAsStringAsync();
+                _logger.LogError("Gemini API Error: {StatusCode} - {Error}",
+                    response.StatusCode, errorContent);
+            }
+
             response.EnsureSuccessStatusCode();
 
             var responseJson = await response.Content.ReadAsStringAsync();
-            
+
             // Parse response
             using var doc = JsonDocument.Parse(responseJson);
             var root = doc.RootElement;
-            
-            if (root.TryGetProperty("candidates", out var candidates) && 
+
+            if (root.TryGetProperty("candidates", out var candidates) &&
                 candidates.GetArrayLength() > 0)
             {
                 var candidate = candidates[0];
@@ -251,117 +297,6 @@ namespace BLL.Service
 مهم جداً: يجب أن تكون الإجابة JSON صالح فقط، بدون أي نص إضافي قبل أو بعد JSON.";
         }
 
-        private AIPlanResponseDto ParsePlanResponse(string responseText)
-        {
-            try
-            {
-                // Try to extract JSON from response if it contains markdown code blocks
-                var jsonText = ExtractJsonFromResponse(responseText);
-
-                var options = new JsonSerializerOptions
-                {
-                    PropertyNameCaseInsensitive = true
-                };
-
-                var result = JsonSerializer.Deserialize<AIPlanResponseDto>(jsonText, options);
-                
-                if (result == null || result.MonthlyPlans.Count != 12)
-                {
-                    throw new InvalidOperationException("Invalid plan response structure");
-                }
-
-                return result;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error parsing plan response: {Response}", responseText);
-                throw new InvalidOperationException("Failed to parse AI response", ex);
-            }
-        }
-
-        private AIPerformanceAnalysisDto ParsePerformanceAnalysis(string responseText)
-        {
-            try
-            {
-                var jsonText = ExtractJsonFromResponse(responseText);
-
-                var options = new JsonSerializerOptions
-                {
-                    PropertyNameCaseInsensitive = true
-                };
-
-                var result = JsonSerializer.Deserialize<AIPerformanceAnalysisDto>(jsonText, options);
-                
-                if (result == null)
-                {
-                    throw new InvalidOperationException("Invalid performance analysis response structure");
-                }
-
-                return result;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error parsing performance analysis: {Response}", responseText);
-                throw new InvalidOperationException("Failed to parse AI response", ex);
-            }
-        }
-
-        private string ExtractJsonFromResponse(string responseText)
-        {
-            // Remove markdown code blocks if present
-            var jsonText = responseText.Trim();
-            if (jsonText.StartsWith("```json"))
-            {
-                jsonText = jsonText.Substring(7);
-            }
-            if (jsonText.StartsWith("```"))
-            {
-                jsonText = jsonText.Substring(3);
-            }
-            if (jsonText.EndsWith("```"))
-            {
-                jsonText = jsonText.Substring(0, jsonText.Length - 3);
-            }
-
-            return jsonText.Trim();
-        }
-
-        public async Task<AIPerformanceAnalysisDto> AnalyzeMonthlyPerformanceAsync(
-            int monthlyPlanId,
-            int year,
-            int month,
-            string monthlyGoal,
-            List<WeeklyProgressDto> weeklyProgress,
-            List<WeeklyPerformanceData> allEmployeeReports,
-            int totalTasks,
-            int completedTasks,
-            float achievementPercentage)
-        {
-            try
-            {
-                var apiKey = _configuration["Gemini:ApiKey"];
-                if (string.IsNullOrEmpty(apiKey))
-                {
-                    throw new InvalidOperationException("Gemini API Key is not configured");
-                }
-
-                var prompt = BuildMonthlyPerformanceAnalysisPrompt(
-                    year, month, monthlyGoal, weeklyProgress,
-                    allEmployeeReports, totalTasks, completedTasks, achievementPercentage);
-
-                var responseText = await CallGeminiAPIAsync(apiKey, prompt);
-
-                _logger.LogInformation("Gemini AI Monthly Performance Analysis Response: {Response}", responseText);
-
-                return ParsePerformanceAnalysis(responseText);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error analyzing monthly performance with Gemini AI");
-                throw;
-            }
-        }
-
         private string BuildMonthlyPerformanceAnalysisPrompt(
             int year,
             int month,
@@ -418,10 +353,85 @@ namespace BLL.Service
 - ركز على الاتجاهات والأنماط عبر الأسابيع الأربعة";
         }
 
+        private AIPlanResponseDto ParsePlanResponse(string responseText)
+        {
+            try
+            {
+                // Try to extract JSON from response if it contains markdown code blocks
+                var jsonText = ExtractJsonFromResponse(responseText);
+
+                var options = new JsonSerializerOptions
+                {
+                    PropertyNameCaseInsensitive = true
+                };
+
+                var result = JsonSerializer.Deserialize<AIPlanResponseDto>(jsonText, options);
+
+                if (result == null || result.MonthlyPlans.Count != 12)
+                {
+                    throw new InvalidOperationException("Invalid plan response structure");
+                }
+
+                return result;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error parsing plan response: {Response}", responseText);
+                throw new InvalidOperationException("Failed to parse AI response", ex);
+            }
+        }
+
+        private AIPerformanceAnalysisDto ParsePerformanceAnalysis(string responseText)
+        {
+            try
+            {
+                var jsonText = ExtractJsonFromResponse(responseText);
+
+                var options = new JsonSerializerOptions
+                {
+                    PropertyNameCaseInsensitive = true
+                };
+
+                var result = JsonSerializer.Deserialize<AIPerformanceAnalysisDto>(jsonText, options);
+
+                if (result == null)
+                {
+                    throw new InvalidOperationException("Invalid performance analysis response structure");
+                }
+
+                return result;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error parsing performance analysis: {Response}", responseText);
+                throw new InvalidOperationException("Failed to parse AI response", ex);
+            }
+        }
+
+        private string ExtractJsonFromResponse(string responseText)
+        {
+            // Remove markdown code blocks if present
+            var jsonText = responseText.Trim();
+            if (jsonText.StartsWith("```json"))
+            {
+                jsonText = jsonText.Substring(7);
+            }
+            if (jsonText.StartsWith("```"))
+            {
+                jsonText = jsonText.Substring(3);
+            }
+            if (jsonText.EndsWith("```"))
+            {
+                jsonText = jsonText.Substring(0, jsonText.Length - 3);
+            }
+
+            return jsonText.Trim();
+        }
+
         private void CalculateWeekDates(AIPlanResponseDto planResponse, int year)
         {
             var currentDate = new DateTime(year, 1, 1);
-            
+
             // Find the first Monday of the year
             while (currentDate.DayOfWeek != DayOfWeek.Monday)
             {
@@ -431,7 +441,7 @@ namespace BLL.Service
             foreach (var monthlyPlan in planResponse.MonthlyPlans)
             {
                 var monthStart = new DateTime(year, monthlyPlan.Month, 1);
-                
+
                 foreach (var weeklyPlan in monthlyPlan.WeeklyPlans)
                 {
                     // Calculate week start (Monday) and week end (Sunday)
@@ -441,7 +451,7 @@ namespace BLL.Service
                     {
                         weekStart = monthStart;
                     }
-                    
+
                     // Ensure week start is a Monday
                     while (weekStart.DayOfWeek != DayOfWeek.Monday)
                     {
