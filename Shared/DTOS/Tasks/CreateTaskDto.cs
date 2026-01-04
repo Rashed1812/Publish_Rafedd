@@ -26,7 +26,7 @@ namespace Shared.DTOS.Tasks
         /// <summary>
         /// List of employee IDs to assign this task to (supports multiple employees)
         /// </summary>
-        public List<int> AssignedToEmployeeIds { get; set; } = new List<int>();
+        public List<string> AssignedToEmployeeIds { get; set; } = new();
     }
 }
 

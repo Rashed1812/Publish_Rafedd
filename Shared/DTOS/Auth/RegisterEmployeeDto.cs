@@ -18,7 +18,11 @@ namespace Shared.DTOS.Auth
 
         [Required]
         [MaxLength(100)]
-        public string Position { get; set; } = null!; // منصب الموظف
+        public string Position { get; set; } = null!;
+        [Required]
+        public string Department { get; set; } = null!;
+        [Required]
+        public string PhoneNumber { get; set; }= null!;
     }
 }
 

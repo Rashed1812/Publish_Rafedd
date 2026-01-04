@@ -9,6 +9,7 @@ using Shared.DTOS.Common;
 using Shared.DTOS.Subscription;
 using Shared.DTOS.Users;
 using Shared.Exceptions;
+using System.ComponentModel.DataAnnotations;
 using System.Security.Claims;
 
 namespace Rafedd.Controllers
@@ -294,7 +295,6 @@ namespace Rafedd.Controllers
 
             return Ok(ApiResponse<object>.SuccessResponse(result, "تم الحصول على المدفوعات بنجاح"));
         }
-        // هذا الجزء يُضاف إلى AdminController.cs
 
         // Seed Data Endpoints
         [HttpPost("seed/all")]
@@ -428,7 +428,7 @@ namespace Rafedd.Controllers
 
                 if (subscription.IsActive)
                 {
-                    throw new BadRequestException("الاشتراك غير معلق للموافقة");
+                    throw new BadRequestException("الاشتراك مفعل بالفعل");
                 }
 
                 subscription.IsActive = true;
@@ -444,11 +444,14 @@ namespace Rafedd.Controllers
                 var manager = await _managerRepository.GetByIdAsync(subscription.ManagerId);
                 if (manager != null)
                 {
+                    var planName = subscription.Plan?.Name ?? "الاشتراك";
+                    var endDateText = subscription.EndDate.ToString("dd/MM/yyyy");
+
                     await _notificationService.CreateNotificationAsync(
                         manager.UserId,
                         "subscription_approved",
-                        "تفعيل الاشتراك",
-                        "تم الموافقة على طلب اشتراكك وتفعيل حسابك بنجاح",
+                        "تم تفعيل الاشتراك ✅",
+                        $"تم الموافقة على اشتراكك في خطة {planName} وتفعيل حسابك بنجاح. ينتهي الاشتراك في {endDateText}",
                         "high",
                         "/subscription",
                         subscription.Id.ToString()
@@ -490,7 +493,7 @@ namespace Rafedd.Controllers
 
                 if (subscription.IsActive)
                 {
-                    throw new BadRequestException("الاشتراك غير معلق للموافقة");
+                    throw new BadRequestException("الاشتراك مفعل بالفعل");
                 }
 
                 subscription.IsActive = false;
@@ -502,15 +505,15 @@ namespace Rafedd.Controllers
                 var manager = await _managerRepository.GetByIdAsync(subscription.ManagerId);
                 if (manager != null)
                 {
-                    var reason = !string.IsNullOrEmpty(dto?.Reason)
-                        ? $"السبب: {dto.Reason}"
+                    var reasonText = !string.IsNullOrEmpty(dto?.Reason)
+                        ? $"\n\nسبب الرفض: {dto.Reason}"
                         : "";
 
                     await _notificationService.CreateNotificationAsync(
                         manager.UserId,
                         "subscription_rejected",
-                        "رفض طلب الاشتراك",
-                        $"تم رفض طلب اشتراكك. {reason}",
+                        "تم رفض طلب الاشتراك ❌",
+                        $"عذراً، تم رفض طلب اشتراكك. يرجى التواصل مع الدعم الفني للمزيد من المعلومات.{reasonText}",
                         "high",
                         "/subscription",
                         subscription.Id.ToString()
@@ -534,6 +537,173 @@ namespace Rafedd.Controllers
             {
                 _logger.LogError(ex, "Error rejecting subscription");
                 throw new BadRequestException("حدث خطأ أثناء رفض الاشتراك");
+            }
+        }
+
+        // Cancel Subscription
+        [HttpPost("subscriptions/{id}/cancel")]
+        [ProducesResponseType(typeof(ApiResponse<object>), 200)]
+        [ProducesResponseType(typeof(ApiResponse<object>), 404)]
+        public async Task<ActionResult<ApiResponse<object>>> CancelSubscription(int id, [FromBody] CancelSubscriptionDto? dto = null)
+        {
+            try
+            {
+                var subscription = await _subscriptionRepository.GetByIdAsync(id);
+                if (subscription == null)
+                {
+                    throw new NotFoundException("الاشتراك غير موجود");
+                }
+
+                subscription.IsActive = false;
+                subscription.AutoRenew = false;
+
+                _subscriptionRepository.Update(subscription);
+                await _subscriptionRepository.SaveChangesAsync();
+
+                // إشعار للمدير عند إلغاء الاشتراك
+                var manager = await _managerRepository.GetByIdAsync(subscription.ManagerId);
+                if (manager != null)
+                {
+                    var reasonText = !string.IsNullOrEmpty(dto?.Reason)
+                        ? $"\n\nالسبب: {dto.Reason}"
+                        : "";
+
+                    await _notificationService.CreateNotificationAsync(
+                        manager.UserId,
+                        "subscription_cancelled",
+                        "تم إلغاء الاشتراك",
+                        $"تم إلغاء اشتراكك من قبل الإدارة. سيتم إيقاف الخدمة في {subscription.EndDate:dd/MM/yyyy}.{reasonText}",
+                        "high",
+                        "/subscription",
+                        subscription.Id.ToString()
+                    );
+                }
+
+                return Ok(ApiResponse<object>.SuccessResponse(null, "تم إلغاء الاشتراك بنجاح"));
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error cancelling subscription");
+                throw new BadRequestException("حدث خطأ أثناء إلغاء الاشتراك");
+            }
+        }
+
+        // Extend Subscription
+        [HttpPost("subscriptions/{id}/extend")]
+        [ProducesResponseType(typeof(ApiResponse<object>), 200)]
+        [ProducesResponseType(typeof(ApiResponse<object>), 404)]
+        public async Task<ActionResult<ApiResponse<object>>> ExtendSubscription(int id, [FromBody] ExtendSubscriptionDto dto)
+        {
+            try
+            {
+                var subscription = await _subscriptionRepository.GetByIdAsync(id);
+                if (subscription == null)
+                {
+                    throw new NotFoundException("الاشتراك غير موجود");
+                }
+
+                subscription.EndDate = subscription.EndDate.AddMonths(dto.Months);
+
+                _subscriptionRepository.Update(subscription);
+                await _subscriptionRepository.SaveChangesAsync();
+
+                // إشعار للمدير عند تمديد الاشتراك
+                var manager = await _managerRepository.GetByIdAsync(subscription.ManagerId);
+                if (manager != null)
+                {
+                    await _notificationService.CreateNotificationAsync(
+                        manager.UserId,
+                        "subscription_extended",
+                        "تم تمديد الاشتراك 🎉",
+                        $"تم تمديد اشتراكك لمدة {dto.Months} شهر. الاشتراك ينتهي الآن في {subscription.EndDate:dd/MM/yyyy}",
+                        "medium",
+                        "/subscription",
+                        subscription.Id.ToString()
+                    );
+                }
+
+                return Ok(ApiResponse<object>.SuccessResponse(null, $"تم تمديد الاشتراك لمدة {dto.Months} شهر"));
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error extending subscription");
+                throw new BadRequestException("حدث خطأ أثناء تمديد الاشتراك");
+            }
+        }
+
+        // Deactivate Manager
+        [HttpPut("managers/{id}/deactivate")]
+        [ProducesResponseType(typeof(ApiResponse<object>), 200)]
+        [ProducesResponseType(typeof(ApiResponse<object>), 404)]
+        public async Task<ActionResult<ApiResponse<object>>> DeactivateManager(string id)
+        {
+            try
+            {
+                var manager = await _managerRepository.GetByUserIdAsync(id);
+                if (manager == null)
+                {
+                    throw new NotFoundException("المدير غير موجود");
+                }
+
+                manager.IsActive = false;
+                _managerRepository.Update(manager);
+                await _managerRepository.SaveChangesAsync();
+
+                // إشعار للمدير عند تعطيل حسابه
+                await _notificationService.CreateNotificationAsync(
+                    manager.UserId,
+                    "account_deactivated",
+                    "تم تعطيل الحساب",
+                    "تم تعطيل حسابك من قبل الإدارة. للاستفسار يرجى التواصل مع الدعم الفني",
+                    "high",
+                    "/profile",
+                    null
+                );
+
+                return Ok(ApiResponse<object>.SuccessResponse(null, "تم تعطيل المدير بنجاح"));
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error deactivating manager");
+                throw new BadRequestException("حدث خطأ أثناء تعطيل المدير");
+            }
+        }
+
+        // Activate Manager
+        [HttpPut("managers/{id}/activate")]
+        [ProducesResponseType(typeof(ApiResponse<object>), 200)]
+        [ProducesResponseType(typeof(ApiResponse<object>), 404)]
+        public async Task<ActionResult<ApiResponse<object>>> ActivateManager(string id)
+        {
+            try
+            {
+                var manager = await _managerRepository.GetByUserIdAsync(id);
+                if (manager == null)
+                {
+                    throw new NotFoundException("المدير غير موجود");
+                }
+
+                manager.IsActive = true;
+                _managerRepository.Update(manager);
+                await _managerRepository.SaveChangesAsync();
+
+                // إشعار للمدير عند تفعيل حسابه
+                await _notificationService.CreateNotificationAsync(
+                    manager.UserId,
+                    "account_activated",
+                    "تم تفعيل الحساب ✅",
+                    "تم تفعيل حسابك بنجاح. يمكنك الآن الوصول إلى جميع الخدمات",
+                    "medium",
+                    "/profile",
+                    null
+                );
+
+                return Ok(ApiResponse<object>.SuccessResponse(null, "تم تفعيل المدير بنجاح"));
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error activating manager");
+                throw new BadRequestException("حدث خطأ أثناء تفعيل المدير");
             }
         }
 
@@ -578,6 +748,7 @@ namespace Rafedd.Controllers
             return Ok(ApiResponse<AdminSettingsDto>.SuccessResponse(settings, "تم تحديث إعدادات النظام بنجاح"));
         }
 
+        // DTOs
         public class ApproveSubscriptionDto
         {
             public decimal? CustomPrice { get; set; }
@@ -587,6 +758,18 @@ namespace Rafedd.Controllers
         public class RejectSubscriptionDto
         {
             public string? Reason { get; set; }
+        }
+
+        public class CancelSubscriptionDto
+        {
+            public string? Reason { get; set; }
+        }
+
+        public class ExtendSubscriptionDto
+        {
+            [Required]
+            [Range(1, 12)]
+            public int Months { get; set; }
         }
     }
 }

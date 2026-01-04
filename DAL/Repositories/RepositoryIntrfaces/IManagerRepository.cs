@@ -9,7 +9,6 @@ namespace DAL.Repositories.RepositoryIntrfaces
         Task<Manager?> GetWithDetailsAsync(string userId);
         Task<List<Manager>> GetAllActiveAsync();
 
-        // NEW: For flexible filtering
         IQueryable<Manager> GetFilteredQueryable();
     }
 }

@@ -4,6 +4,7 @@ namespace Shared.DTOS.Subscription
     {
         public int Id { get; set; }
         public int ManagerId { get; set; }
+        public string ManagerName { get; set; } = null!;
         public int SubscriptionPlanId { get; set; }
         public string PlanName { get; set; } = null!;
         public decimal PlanPrice { get; set; }

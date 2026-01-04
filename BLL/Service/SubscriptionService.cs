@@ -1,4 +1,4 @@
-using BLL.ServiceAbstraction;
+﻿using BLL.ServiceAbstraction;
 using DAL.Data;
 using DAL.Data.Models.IdentityModels;
 using DAL.Data.Models.Subscription;
@@ -284,6 +284,7 @@ namespace BLL.Service
             {
                 Id = s.Id,
                 ManagerId = s.ManagerId,
+                ManagerName = s.Manager.User.FullName,
                 SubscriptionPlanId = s.SubscriptionPlanId,
                 PlanName = s.Plan.Name,
                 PlanPrice = s.Plan.PricePerMonth,

@@ -168,6 +168,7 @@ namespace BLL.Service
                     UserName = registerDto.Email,
                     Email = registerDto.Email,
                     FullName = registerDto.FullName,
+                    PhoneNumber= registerDto.PhoneNumber,
                     IsActive = true
                 };
 
@@ -191,7 +192,8 @@ namespace BLL.Service
                     UserId = user.Id,
                     ManagerUserId = managerUserId,
                     Position = registerDto.Position,
-                    IsActive = true
+                    IsActive = true,
+                    Department = registerDto.Department
                 };
 
                 _context.Employees.Add(employee);

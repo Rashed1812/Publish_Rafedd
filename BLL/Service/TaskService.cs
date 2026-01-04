@@ -1,5 +1,5 @@
-using System.Linq.Expressions;
-using BLL.ServiceAbstraction;
+﻿using BLL.ServiceAbstraction;
+using BLL.Services;
 using DAL.Data;
 using DAL.Data.Models.IdentityModels;
 using DAL.Data.Models.TasksAndReports;
@@ -9,6 +9,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Shared.DTOS.Common;
 using Shared.DTOS.Tasks;
+using System.Linq.Expressions;
 
 namespace BLL.Service
 {
@@ -19,18 +20,21 @@ namespace BLL.Service
         private readonly IManagerRepository _managerRepository;
         private readonly IEmployeeRepository _employeeRepository;
         private readonly ILogger<TaskService> _logger;
+        private readonly INotificationService _notificationService;
 
         public TaskService(
             ApplicationDbContext context,
             ITaskRepository taskRepository,
             IManagerRepository managerRepository,
             IEmployeeRepository employeeRepository,
+            INotificationService notificationService,
             ILogger<TaskService> logger)
         {
             _context = context;
             _taskRepository = taskRepository;
             _managerRepository = managerRepository;
             _employeeRepository = employeeRepository;
+            _notificationService = notificationService;
             _logger = logger;
         }
 
@@ -43,18 +47,30 @@ namespace BLL.Service
                 throw new InvalidOperationException("Manager not found");
             }
 
-            // Verify all assigned employees exist and belong to this manager
+            List<int> employeeIds = new List<int>();
+            List<string> employeeUserIds = new List<string>(); // للـ Notifications
+
             if (dto.AssignedToEmployeeIds != null && dto.AssignedToEmployeeIds.Any())
             {
-                foreach (var employeeId in dto.AssignedToEmployeeIds)
-                {
-                    var employee = await _employeeRepository.GetByIdAsync(employeeId);
+                // جيب الـ Employees في استعلام واحد
+                var employees = await _employeeRepository.GetEmployeesByUserIdsAsync(
+                    dto.AssignedToEmployeeIds,
+                    managerUserId
+                );
 
-                    if (employee == null || !employee.IsActive || employee.ManagerUserId != managerUserId)
-                    {
-                        throw new InvalidOperationException($"Employee with ID {employeeId} not found or not assigned to this manager");
-                    }
+                // تأكد إن كل الـ UserIds موجودة
+                var foundUserIds = employees.Select(e => e.UserId).ToList();
+                var missingUserIds = dto.AssignedToEmployeeIds.Except(foundUserIds).ToList();
+
+                if (missingUserIds.Any())
+                {
+                    throw new InvalidOperationException(
+                        $"الموظفين التاليين غير موجودين أو غير تابعين لهذا المدير: {string.Join(", ", missingUserIds)}"
+                    );
                 }
+
+                employeeIds = employees.Select(e => e.Id).ToList();
+                employeeUserIds = employees.Select(e => e.UserId).ToList(); // احفظ الـ UserIds
             }
 
             // Create the task
@@ -74,26 +90,40 @@ namespace BLL.Service
             await _taskRepository.AddAsync(task);
             await _taskRepository.SaveChangesAsync();
 
-            // Create task assignments for each employee
-            if (dto.AssignedToEmployeeIds != null && dto.AssignedToEmployeeIds.Any())
+            // Create task assignments
+            if (employeeIds.Any())
             {
-                foreach (var employeeId in dto.AssignedToEmployeeIds)
+                var assignments = employeeIds.Select(employeeId => new TaskAssignment
                 {
-                    var assignment = new TaskAssignment
-                    {
-                        TaskItemId = task.Id,
-                        EmployeeId = employeeId,
-                        AssignedByUserId = managerUserId,
-                        AssignedAt = DateTime.UtcNow
-                    };
+                    TaskItemId = task.Id,
+                    EmployeeId = employeeId,
+                    AssignedByUserId = managerUserId,
+                    AssignedAt = DateTime.UtcNow
+                }).ToList();
 
-                    await _context.TaskAssignments.AddAsync(assignment);
-                }
-
+                await _context.TaskAssignments.AddRangeAsync(assignments);
                 await _context.SaveChangesAsync();
 
                 // Reload task with assignments
                 task = await _taskRepository.GetByIdWithAssignmentsAsync(task.Id) ?? task;
+
+                // إرسال Notifications للموظفين
+                if (employeeUserIds.Any())
+                {
+                    var deadlineText = dto.Deadline.HasValue
+                        ? $" - الموعد النهائي: {dto.Deadline.Value:yyyy-MM-dd}"
+                        : "";
+
+                    await _notificationService.CreateBulkNotificationsAsync(
+                        employeeUserIds,
+                        "task_assigned",
+                        "مهمة جديدة",
+                        $"تم تعيين مهمة جديدة لك: {dto.Title}{deadlineText}",
+                        "high",
+                        $"/tasks/{task.Id}",
+                        task.Id.ToString()
+                    );
+                }
             }
 
             return await MapToTaskDtoAsync(task);
@@ -109,6 +139,16 @@ namespace BLL.Service
                 taskDtos.Add(await MapToTaskDtoAsync(task));
             }
 
+            return taskDtos;
+        }
+        public async Task<List<TaskDto>> GetTasksByMonthAsync(string managerUserId, int year, int month)
+        {
+            var tasks = await _taskRepository.GetByMonthAsync(managerUserId, year, month);
+            var taskDtos = new List<TaskDto>();
+            foreach (var task in tasks)
+            {
+                taskDtos.Add(await MapToTaskDtoAsync(task));
+            }
             return taskDtos;
         }
 

@@ -5,6 +5,7 @@ namespace DAL.Repositories.RepositoryIntrfaces
 {
     public interface IEmployeeRepository : IGenericRepository<Employee>
     {
+        Task<List<Employee>> GetEmployeesByUserIdsAsync(List<string> userIds, string managerUserId);
         Task<Employee?> GetByUserIdAsync(string userId);
         Task<Employee?> GetWithDetailsAsync(string userId);
         Task<List<Employee>> GetByManagerAsync(string managerUserId);

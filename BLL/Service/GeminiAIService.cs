@@ -27,34 +27,24 @@ namespace BLL.Service
 
         public async Task<AIPlanResponseDto> GenerateAnnualPlanAsync(string arabicTarget, int year)
         {
-            try
+            var apiKey = _configuration["Gemini:ApiKey"];
+            if (string.IsNullOrEmpty(apiKey))
             {
-                var apiKey = _configuration["Gemini:ApiKey"];
-                if (string.IsNullOrEmpty(apiKey))
-                {
-                    throw new InvalidOperationException("Gemini API Key is not configured");
-                }
-
-                var prompt = BuildPlanGenerationPrompt(arabicTarget, year);
-                var responseText = await CallGeminiAPIAsync(apiKey, prompt);
-
-                _logger.LogInformation("Gemini AI Response: {Response}", responseText);
-
-                // Parse JSON response from Gemini
-                var planResponse = ParsePlanResponse(responseText);
-
-                // Calculate week dates
-                CalculateWeekDates(planResponse, year);
-
-                return planResponse;
+                _logger.LogError("Gemini API Key is not configured");
+                throw new InvalidOperationException("Gemini API Key is not configured. Cannot generate plan.");
             }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error generating annual plan with Gemini AI");
-                throw;
-            }
+
+            var prompt = BuildPlanGenerationPrompt(arabicTarget, year);
+            var responseText = await CallGeminiAPIAsync(apiKey, prompt);
+
+            _logger.LogInformation("Gemini AI Response received");
+
+            var planResponse = ParsePlanResponse(responseText);
+
+            CalculateWeekDates(planResponse, year);
+
+            return planResponse;
         }
-
         public async Task<AIPerformanceAnalysisDto> AnalyzeWeeklyPerformanceAsync(
             int weeklyPlanId,
             int year,
@@ -122,71 +112,89 @@ namespace BLL.Service
 
         private async Task<string> CallGeminiAPIAsync(string apiKey, string prompt)
         {
-            var httpClient = _httpClientFactory.CreateClient();
-            httpClient.Timeout = TimeSpan.FromMinutes(5);
-
-            var modelName = _configuration["Gemini:ModelName"] ?? "gemini-1.5-pro";
-
-            // FIXED: Add API key as query parameter in URL (not as header)
-            var apiUrl = $"https://generativelanguage.googleapis.com/v1beta/models/{modelName}:generateContent?key={apiKey}";
-
-            var requestBody = new
+            try
             {
-                contents = new[]
+                var httpClient = _httpClientFactory.CreateClient();
+                httpClient.Timeout = TimeSpan.FromMinutes(5);
+
+                var modelName = _configuration["Gemini:ModelName"] ?? "gemini-1.5-flash";
+
+                var apiUrl = $"https://generativelanguage.googleapis.com/v1beta/models/{modelName}:generateContent?key={apiKey}";
+
+                var requestBody = new
                 {
-                    new
+                    contents = new[]
                     {
-                        parts = new[]
+                new
+                {
+                    parts = new[]
+                    {
+                        new { text = prompt }
+                    }
+                }
+            },
+                    generationConfig = new
+                    {
+                        temperature = 0.7,
+                        topK = 40,
+                        topP = 0.95,
+                        maxOutputTokens = 8192
+                    }
+                };
+
+                var json = JsonSerializer.Serialize(requestBody);
+                var content = new StringContent(json, Encoding.UTF8, "application/json");
+
+                _logger.LogInformation("Calling Gemini API with model: {ModelName}", modelName);
+
+                var response = await httpClient.PostAsync(apiUrl, content);
+
+                if (!response.IsSuccessStatusCode)
+                {
+                    var errorContent = await response.Content.ReadAsStringAsync();
+                    _logger.LogError("Gemini API Error: {StatusCode} - {Error}",
+                        response.StatusCode, errorContent);
+
+
+                    if (response.StatusCode == System.Net.HttpStatusCode.Forbidden)
+                    {
+                        _logger.LogWarning("Gemini API returned 403 - Using fallback plan generation");
+                        throw new HttpRequestException("Gemini API access denied. Please check your API key.",
+                            null,
+                            System.Net.HttpStatusCode.Forbidden);
+                    }
+                }
+
+                response.EnsureSuccessStatusCode();
+
+                var responseJson = await response.Content.ReadAsStringAsync();
+
+                using var doc = JsonDocument.Parse(responseJson);
+                var root = doc.RootElement;
+
+                if (root.TryGetProperty("candidates", out var candidates) &&
+                    candidates.GetArrayLength() > 0)
+                {
+                    var candidate = candidates[0];
+                    if (candidate.TryGetProperty("content", out var contentElement) &&
+                        contentElement.TryGetProperty("parts", out var parts) &&
+                        parts.GetArrayLength() > 0)
+                    {
+                        var part = parts[0];
+                        if (part.TryGetProperty("text", out var text))
                         {
-                            new
-                            {
-                                text = prompt
-                            }
+                            return text.GetString() ?? string.Empty;
                         }
                     }
                 }
-            };
 
-            var json = JsonSerializer.Serialize(requestBody);
-            var content = new StringContent(json, Encoding.UTF8, "application/json");
-
-            _logger.LogInformation("Calling Gemini API with model: {ModelName}", modelName);
-
-            var response = await httpClient.PostAsync(apiUrl, content);
-
-            // Better error handling and logging
-            if (!response.IsSuccessStatusCode)
-            {
-                var errorContent = await response.Content.ReadAsStringAsync();
-                _logger.LogError("Gemini API Error: {StatusCode} - {Error}",
-                    response.StatusCode, errorContent);
+                throw new InvalidOperationException("Invalid response format from Gemini API");
             }
-
-            response.EnsureSuccessStatusCode();
-
-            var responseJson = await response.Content.ReadAsStringAsync();
-
-            // Parse response
-            using var doc = JsonDocument.Parse(responseJson);
-            var root = doc.RootElement;
-
-            if (root.TryGetProperty("candidates", out var candidates) &&
-                candidates.GetArrayLength() > 0)
+            catch (HttpRequestException ex) when (ex.StatusCode == System.Net.HttpStatusCode.Forbidden)
             {
-                var candidate = candidates[0];
-                if (candidate.TryGetProperty("content", out var contentElement) &&
-                    contentElement.TryGetProperty("parts", out var parts) &&
-                    parts.GetArrayLength() > 0)
-                {
-                    var part = parts[0];
-                    if (part.TryGetProperty("text", out var text))
-                    {
-                        return text.GetString() ?? string.Empty;
-                    }
-                }
+                _logger.LogError("Gemini API 403 Forbidden - API Key issue");
+                throw;
             }
-
-            throw new InvalidOperationException("Invalid response format from Gemini API");
         }
 
         private string BuildPlanGenerationPrompt(string arabicTarget, int year)
@@ -408,62 +416,55 @@ namespace BLL.Service
             }
         }
 
-        private string ExtractJsonFromResponse(string responseText)
+        private string ExtractJsonFromResponse(string response)
         {
-            // Remove markdown code blocks if present
-            var jsonText = responseText.Trim();
-            if (jsonText.StartsWith("```json"))
+            response = response.Trim();
+            if (response.StartsWith("```json") && response.EndsWith("```"))
             {
-                jsonText = jsonText.Substring(7);
+                response = response.Substring(7, response.Length - 10).Trim();
             }
-            if (jsonText.StartsWith("```"))
+            else if (response.StartsWith("```") && response.EndsWith("```"))
             {
-                jsonText = jsonText.Substring(3);
+                response = response.Substring(3, response.Length - 6).Trim();
             }
-            if (jsonText.EndsWith("```"))
+            var startIndex = response.IndexOf('{');
+            var endIndex = response.LastIndexOf('}');
+            if (startIndex >= 0 && endIndex > startIndex)
             {
-                jsonText = jsonText.Substring(0, jsonText.Length - 3);
+                return response.Substring(startIndex, endIndex - startIndex + 1);
             }
-
-            return jsonText.Trim();
+            return response;
         }
 
+        // ← هنا بالضبط الصق الدالة الجديدة
         private void CalculateWeekDates(AIPlanResponseDto planResponse, int year)
         {
-            var currentDate = new DateTime(year, 1, 1);
-
-            // Find the first Monday of the year
-            while (currentDate.DayOfWeek != DayOfWeek.Monday)
-            {
-                currentDate = currentDate.AddDays(1);
-            }
-
             foreach (var monthlyPlan in planResponse.MonthlyPlans)
             {
-                var monthStart = new DateTime(year, monthlyPlan.Month, 1);
+                var month = monthlyPlan.Month;
+                var daysInMonth = DateTime.DaysInMonth(year, month);
+                var firstDayOfMonth = new DateTime(year, month, 1);
+                // ابدأ من أول يوم في الشهر
+                var currentDate = firstDayOfMonth;
 
-                foreach (var weeklyPlan in monthlyPlan.WeeklyPlans)
+                foreach (var weeklyPlan in monthlyPlan.WeeklyPlans.OrderBy(w => w.WeekNumber))
                 {
-                    // Calculate week start (Monday) and week end (Sunday)
-                    var daysOffset = (weeklyPlan.WeekNumber - 1) * 7;
-                    var weekStart = monthStart.AddDays(-(int)monthStart.DayOfWeek + 1 + (int)DayOfWeek.Monday + daysOffset);
-                    if (weekStart < monthStart)
-                    {
-                        weekStart = monthStart;
-                    }
+                    var weekStart = currentDate;
 
-                    // Ensure week start is a Monday
-                    while (weekStart.DayOfWeek != DayOfWeek.Monday)
-                    {
-                        weekStart = weekStart.AddDays(-1);
-                    }
-
-                    var weekEnd = weekStart.AddDays(6); // Sunday
+                    var tentativeEnd = weekStart.AddDays(6);
+                    var weekEnd = tentativeEnd > firstDayOfMonth.AddDays(daysInMonth - 1)
+                        ? firstDayOfMonth.AddDays(daysInMonth - 1)
+                        : tentativeEnd;
 
                     weeklyPlan.WeekStartDate = weekStart;
                     weeklyPlan.WeekEndDate = weekEnd;
+
+                    currentDate = weekEnd.AddDays(1);
+
+                    if (currentDate > firstDayOfMonth.AddDays(daysInMonth - 1))
+                        break;
                 }
             }
         }
     }
-}
+} 

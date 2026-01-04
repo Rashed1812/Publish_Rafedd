@@ -35,14 +35,13 @@ namespace DAL.Repositories.RepositoryClasses
                 .ToListAsync();
         }
 
-        // NEW: For flexible filtering
         public IQueryable<Manager> GetFilteredQueryable()
         {
             return _dbSet
                 .Include(m => m.User)
                 .Include(m => m.Subscription)
                     .ThenInclude(s => s!.Plan)
-                .Include(m => m.Employees)
+                .Include(m => m.Employees.Where(e => e.IsActive))
                 .AsQueryable();
         }
     }

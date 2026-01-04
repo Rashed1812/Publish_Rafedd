@@ -1,3 +1,4 @@
+using BLL.ServiceAbstraction;
 using DAL.Data;
 using DAL.Data.Models;
 using DAL.Data.Models.IdentityModels;
@@ -18,15 +19,18 @@ namespace Rafedd.Controllers
     {
         private readonly ApplicationDbContext _context;
         private readonly IEmployeeRepository _employeeRepository;
+        private readonly INotificationService _notificationService;
         private readonly ILogger<SuggestionsController> _logger;
 
         public SuggestionsController(
             ApplicationDbContext context,
             IEmployeeRepository employeeRepository,
+            INotificationService notificationService,
             ILogger<SuggestionsController> logger)
         {
             _context = context;
             _employeeRepository = employeeRepository;
+            _notificationService = notificationService;
             _logger = logger;
         }
 
@@ -193,7 +197,7 @@ namespace Rafedd.Controllers
             {
                 var employeeUserId = GetUserId();
                 var employee = await _employeeRepository.GetByUserIdAsync(employeeUserId);
-                
+
                 if (employee == null)
                 {
                     throw new NotFoundException("الموظف غير موجود");
@@ -213,6 +217,17 @@ namespace Rafedd.Controllers
 
                 _context.Suggestions.Add(suggestion);
                 await _context.SaveChangesAsync();
+
+                // إرسال إشعار للمدير عند إنشاء مقترح جديد
+                await _notificationService.CreateNotificationAsync(
+                    employee.ManagerUserId,
+                    "suggestion_submitted",
+                    "مقترح جديد 💡",
+                    $"قام {employee.User.FullName} بإرسال مقترح جديد: {dto.Title}",
+                    "medium",
+                    $"/suggestions/{suggestion.Id}",
+                    suggestion.Id.ToString()
+                );
 
                 var suggestionDto = new
                 {
@@ -273,6 +288,28 @@ namespace Rafedd.Controllers
 
                 await _context.SaveChangesAsync();
 
+                // إرسال إشعار للموظف عند مراجعة المقترح
+                var statusText = dto.Status == "approved" ? "تمت الموافقة على" : "تم رفض";
+                var statusEmoji = dto.Status == "approved" ? "✅" : "❌";
+                var notificationType = dto.Status == "approved" ? "suggestion_approved" : "suggestion_rejected";
+                var priority = dto.Status == "approved" ? "medium" : "low";
+
+                var message = $"{statusText} مقترحك: {suggestion.Title} {statusEmoji}";
+                if (!string.IsNullOrEmpty(dto.ReviewNotes))
+                {
+                    message += $"\n\nملاحظات: {dto.ReviewNotes}";
+                }
+
+                await _notificationService.CreateNotificationAsync(
+                    suggestion.EmployeeId,
+                    notificationType,
+                    $"{statusText} المقترح {statusEmoji}",
+                    message,
+                    priority,
+                    $"/suggestions/{suggestion.Id}",
+                    suggestion.Id.ToString()
+                );
+
                 return Ok(new
                 {
                     success = true,
@@ -308,4 +345,3 @@ namespace Rafedd.Controllers
         public string? ReviewNotes { get; set; }
     }
 }
-

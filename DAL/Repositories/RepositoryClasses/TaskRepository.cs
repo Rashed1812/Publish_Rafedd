@@ -1,4 +1,4 @@
-using DAL.Data;
+﻿using DAL.Data;
 using DAL.Data.Models.TasksAndReports;
 using DAL.Repositories.GenericRepositries;
 using DAL.Repositories.RepositoryIntrfaces;
@@ -39,18 +39,24 @@ namespace DAL.Repositories.RepositoryClasses
                 .ToListAsync();
         }
 
-        public async Task<List<TaskItem>> GetByWeekForPerformanceAsync(int year, int month, int weekNumber)
+        public async Task<List<TaskItem>> GetByWeekForPerformanceAsync(int year, int month, int weekNumber, string? managerUserId = null)
         {
-            return await _dbSet
+            var weekRange = DateHelper.GetWeekRange(year, month, weekNumber);
+
+            var query = _context.Tasks
                 .Include(t => t.Assignments)
                     .ThenInclude(a => a.Employee)
                         .ThenInclude(e => e.User)
                 .Include(t => t.Reports)
-                    .ThenInclude(r => r.Employee)
-                        .ThenInclude(e => e.User)
-                .Where(t => t.Year == year &&
-                           t.Month == month &&
-                           t.WeekNumber == weekNumber)
+                .Where(t => t.CreatedAt >= weekRange.Start &&
+                            t.CreatedAt < weekRange.End);
+            if (!string.IsNullOrEmpty(managerUserId))
+            {
+                query = query.Where(t => t.CreatedById == managerUserId);
+            }
+
+            return await query
+                .OrderByDescending(t => t.CreatedAt)
                 .ToListAsync();
         }
 
@@ -95,6 +101,65 @@ namespace DAL.Repositories.RepositoryClasses
             }
 
             return query;
+        }
+        public async Task<List<TaskItem>> GetByMonthAsync(string managerUserId, int year, int month)
+        {
+            var startDate = new DateTime(year, month, 1);
+            var endDate = startDate.AddMonths(1);
+
+            return await _context.Tasks
+                .Include(t => t.Assignments)
+                    .ThenInclude(a => a.Employee)
+                        .ThenInclude(e => e.User)
+                .Where(t => t.CreatedById == managerUserId &&
+                            t.CreatedAt >= startDate &&
+                            t.CreatedAt < endDate)
+                .OrderByDescending(t => t.CreatedAt)
+                .ToListAsync();
+        }
+    }
+    public static class DateHelper
+    {
+        public static (DateTime Start, DateTime End) GetWeekRange(int year, int month, int weekNumber)
+        {
+            if (weekNumber < 1 || weekNumber > 5)
+            {
+                throw new ArgumentException("رقم الأسبوع يجب أن يكون بين 1 و 5", nameof(weekNumber));
+            }
+            var firstDayOfMonth = new DateTime(year, month, 1);
+            var startDate = firstDayOfMonth.AddDays((weekNumber - 1) * 7);
+            if (startDate.Month != month)
+            {
+                startDate = firstDayOfMonth;
+            }
+
+            var endDate = startDate.AddDays(7);
+
+
+            var lastDayOfMonth = new DateTime(year, month, DateTime.DaysInMonth(year, month)).AddDays(1);
+            if (endDate > lastDayOfMonth)
+            {
+                endDate = lastDayOfMonth;
+            }
+
+            return (startDate, endDate);
+        }
+
+
+        public static int GetWeekNumber(DateTime date)
+        {
+            var firstDayOfMonth = new DateTime(date.Year, date.Month, 1);
+            var daysDifference = (date.Date - firstDayOfMonth).Days;
+            var weekNumber = (daysDifference / 7) + 1;
+
+
+            return Math.Min(weekNumber, 5);
+        }
+
+        public static int GetWeeksInMonth(int year, int month)
+        {
+            var daysInMonth = DateTime.DaysInMonth(year, month);
+            return (int)Math.Ceiling(daysInMonth / 7.0);
         }
     }
 }

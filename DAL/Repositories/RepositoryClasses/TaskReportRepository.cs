@@ -36,6 +36,18 @@ namespace DAL.Repositories.RepositoryClasses
                 .OrderByDescending(tr => tr.SubmittedAt)
                 .ToListAsync();
         }
+        public async Task<List<TaskReport>> GetByMonthAsync(string managerUserId, int year, int month)
+        {
+            return await _dbSet
+                .Include(tr => tr.TaskItem)
+                .Include(tr => tr.Employee)
+                    .ThenInclude(e => e.User)
+                .Where(tr => tr.TaskItem.CreatedById == managerUserId &&
+                           tr.TaskItem.Year == year &&
+                           tr.TaskItem.Month == month)
+                .OrderByDescending(tr => tr.SubmittedAt)
+                .ToListAsync();
+        }
 
         public async Task<List<TaskReport>> GetByEmployeeAsync(int employeeId)
         {

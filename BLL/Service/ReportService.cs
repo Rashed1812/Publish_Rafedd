@@ -107,6 +107,18 @@ namespace BLL.Service
                 SubmittedAt = report.SubmittedAt
             };
         }
+        public async Task<List<TaskReportDto>> GetReportsByMonthAsync(string managerUserId, int year, int month)
+        {
+            var reports = await _taskReportRepository.GetByMonthAsync(managerUserId, year, month);
+            var reportDtos = new List<TaskReportDto>();
+
+            foreach (var report in reports)
+            {
+                reportDtos.Add(await MapToReportDtoAsync(report));
+            }
+
+            return reportDtos;
+        }
     }
 }
 

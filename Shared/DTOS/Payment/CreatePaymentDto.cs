@@ -6,6 +6,8 @@ namespace Shared.DTOS.Payment
     {
         [Required]
         public int SubscriptionId { get; set; }
+        [Required]
+        public string UserId{ get; set; }
 
         [Required]
         public decimal Amount { get; set; }

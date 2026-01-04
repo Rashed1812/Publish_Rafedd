@@ -7,11 +7,10 @@ namespace BLL.ServiceAbstraction
     {
         Task<TaskDto> CreateTaskAsync(string managerUserId, CreateTaskDto dto);
         Task<List<TaskDto>> GetTasksByWeekAsync(string managerUserId, int year, int month, int weekNumber);
+        Task<List<TaskDto>> GetTasksByMonthAsync(string managerUserId, int year, int month);
         Task<List<TaskDto>> GetEmployeeTasksAsync(string employeeUserId);
         Task<TaskDto> UpdateTaskStatusAsync(int taskId, bool isCompleted, string? completedByUserId);
         Task<bool> DeleteTaskAsync(int taskId, string managerUserId);
-
-        // NEW: For flexible filtering
         Task<PagedResponse<TaskDto>> GetTasksAsync(TaskFilterParams filterParams, string? managerUserId = null);
     }
 }

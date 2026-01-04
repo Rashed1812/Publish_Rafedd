@@ -15,8 +15,10 @@ namespace DAL.Repositories.RepositoryClasses
         public async Task<Employee?> GetByUserIdAsync(string userId)
         {
             return await _dbSet
+                .Include(e => e.User)
                 .FirstOrDefaultAsync(e => e.UserId == userId && e.IsActive);
         }
+
 
         public async Task<Employee?> GetWithDetailsAsync(string userId)
         {
@@ -56,6 +58,16 @@ namespace DAL.Repositories.RepositoryClasses
 
             return query;
         }
+
+        public async Task<List<Employee>> GetEmployeesByUserIdsAsync(List<string> userIds, string managerUserId)
+        {
+            return await _dbSet
+                .Where(e => userIds.Contains(e.UserId)
+                         && e.IsActive
+                         && e.ManagerUserId == managerUserId)
+                .ToListAsync();
+        }
+
     }
 }
 

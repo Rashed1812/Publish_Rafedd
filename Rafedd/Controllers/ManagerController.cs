@@ -33,6 +33,7 @@ namespace Rafedd.Controllers
         private readonly IManagerRepository _managerRepository;
         private readonly ApplicationDbContext _context;
         private readonly ILogger<ManagerController> _logger;
+        private readonly IEmployeeRepository _employeeRepository;
 
         public ManagerController(
             IAnnualTargetService annualTargetService,
@@ -44,6 +45,7 @@ namespace Rafedd.Controllers
             ITaskAnalysisService taskAnalysisService,
             IManagerRepository managerRepository,
             ApplicationDbContext context,
+            IEmployeeRepository employeeRepository,
             ILogger<ManagerController> logger)
         {
             _annualTargetService = annualTargetService;
@@ -56,6 +58,7 @@ namespace Rafedd.Controllers
             _managerRepository = managerRepository;
             _context = context;
             _logger = logger;
+            _employeeRepository = employeeRepository;
         }
 
         private string GetUserId()
@@ -64,22 +67,24 @@ namespace Rafedd.Controllers
                 ?? throw new UnauthorizedException("User ID not found in token");
         }
 
-        // Annual Targets
         [HttpPost("annual-targets")]
         [RequireActiveSubscription]
-        [ProducesResponseType(typeof(ApiResponse<AnnualTargetResponseDto>), 200)]
-        [ProducesResponseType(typeof(ApiResponse<AnnualTargetResponseDto>), 400)]
         public async Task<ActionResult<ApiResponse<AnnualTargetResponseDto>>> CreateAnnualTarget([FromBody] CreateAnnualTargetDto dto)
         {
             try
             {
                 var managerUserId = GetUserId();
                 var result = await _annualTargetService.CreateAnnualTargetAsync(managerUserId, dto);
-                return Ok(ApiResponse<AnnualTargetResponseDto>.SuccessResponse(result, "تم إنشاء الهدف السنوي بنجاح. تم توليد الخطة الكاملة (48 أسبوع) باستخدام Gemini AI"));
+                return Ok(ApiResponse<AnnualTargetResponseDto>.SuccessResponse(result, "تم إنشاء الهدف السنوي بنجاح."));
             }
             catch (InvalidOperationException ex)
             {
-                throw new BadRequestException(ex.Message);
+                return BadRequest(ApiResponse<AnnualTargetResponseDto>.ErrorResponse(ex.Message));
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Unexpected error while creating annual target for year {Year}", dto.Year);
+                return StatusCode(500, ApiResponse<AnnualTargetResponseDto>.ErrorResponse("حدث خطأ داخلي. تحقق من السجلات."));
             }
         }
 
@@ -149,13 +154,25 @@ namespace Rafedd.Controllers
         public async Task<ActionResult<ApiResponse<List<TaskDto>>>> GetTasksByWeek(
             [FromQuery] int year,
             [FromQuery] int month,
-            [FromQuery] int weekNumber)
+            [FromQuery] int? weekNumber = null)
         {
             var managerUserId = GetUserId();
-            var result = await _taskService.GetTasksByWeekAsync(managerUserId, year, month, weekNumber);
-            return Ok(ApiResponse<List<TaskDto>>.SuccessResponse(result, $"تم الحصول على مهام الأسبوع {weekNumber} من الشهر {month} بنجاح"));
-        }
+            List<TaskDto> result;
+            string message;
 
+            if (weekNumber.HasValue)
+            {
+                result = await _taskService.GetTasksByWeekAsync(managerUserId, year, month, weekNumber.Value);
+                message = $"تم الحصول على مهام الأسبوع {weekNumber.Value} من الشهر {month} بنجاح";
+            }
+            else
+            {
+                result = await _taskService.GetTasksByMonthAsync(managerUserId, year, month);
+                message = $"تم الحصول على مهام الشهر {month} بنجاح";
+            }
+
+            return Ok(ApiResponse<List<TaskDto>>.SuccessResponse(result, message));
+        }
         [HttpDelete("tasks/{taskId}")]
         [RequireActiveSubscription]
         [ProducesResponseType(typeof(ApiResponse), 200)]
@@ -186,11 +203,25 @@ namespace Rafedd.Controllers
         public async Task<ActionResult<ApiResponse<List<TaskReportDto>>>> GetReportsByWeek(
             [FromQuery] int year,
             [FromQuery] int month,
-            [FromQuery] int weekNumber)
+            [FromQuery] int? weekNumber = null)
         {
             var managerUserId = GetUserId();
-            var result = await _reportService.GetReportsByWeekAsync(managerUserId, year, month, weekNumber);
-            return Ok(ApiResponse<List<TaskReportDto>>.SuccessResponse(result, $"تم الحصول على تقارير الأسبوع {weekNumber} من الشهر {month} بنجاح"));
+
+            List<TaskReportDto> result;
+            string message;
+
+            if (weekNumber.HasValue)
+            {
+                result = await _reportService.GetReportsByWeekAsync(managerUserId, year, month, weekNumber.Value);
+                message = $"تم الحصول على تقارير الأسبوع {weekNumber.Value} من الشهر {month} بنجاح";
+            }
+            else
+            {
+                result = await _reportService.GetReportsByMonthAsync(managerUserId, year, month);
+                message = $"تم الحصول على تقارير الشهر {month} بنجاح";
+            }
+
+            return Ok(ApiResponse<List<TaskReportDto>>.SuccessResponse(result, message));
         }
 
         // Performance Reports
@@ -282,7 +313,6 @@ namespace Rafedd.Controllers
             return Ok(ApiResponse<List<TaskAnalysisResultDto>>.SuccessResponse(result, message));
         }
 
-        // Monthly Performance Reports
         [HttpPost("monthly-reports/{monthlyPlanId}/generate")]
         [RequireActiveSubscription]
         [ProducesResponseType(typeof(ApiResponse<MonthlyPerformanceReportDto>), 200)]
@@ -291,12 +321,25 @@ namespace Rafedd.Controllers
         {
             try
             {
+                _logger.LogInformation("Received request to generate monthly report for MonthlyPlanId: {MonthlyPlanId}", monthlyPlanId);
+
                 var result = await _monthlyPerformanceAnalysisService.GenerateMonthlyPerformanceReportAsync(monthlyPlanId);
+
                 return Ok(ApiResponse<MonthlyPerformanceReportDto>.SuccessResponse(result, "تم توليد تقرير الأداء الشهري بنجاح باستخدام Gemini AI"));
             }
             catch (InvalidOperationException ex)
             {
+                _logger.LogWarning(ex, "InvalidOperationException for MonthlyPlanId: {MonthlyPlanId}", monthlyPlanId);
                 throw new BadRequestException(ex.Message);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Unexpected error generating monthly report for MonthlyPlanId: {MonthlyPlanId}. Error: {ErrorMessage}",
+                    monthlyPlanId, ex.Message);
+
+                return StatusCode(500, ApiResponse<MonthlyPerformanceReportDto>.ErrorResponse(
+                    $"خطأ في توليد التقرير: {ex.Message}",
+                    500));
             }
         }
 

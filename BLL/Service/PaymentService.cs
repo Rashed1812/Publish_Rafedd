@@ -287,7 +287,8 @@ namespace BLL.Service
                             Currency = dto.Currency,
                             Status = "Pending",
                             TransactionId = invoiceId,
-                            PaymentMethodName = "myfatoorah"
+                            PaymentMethodName = "myfatoorah",
+                            UserId = dto.UserId
                             // PaidAt will be set when payment is confirmed as Completed
                         };
 
